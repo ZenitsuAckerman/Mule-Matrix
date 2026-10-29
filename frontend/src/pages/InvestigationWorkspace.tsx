@@ -4,6 +4,7 @@ import {
   RotateCcw,
   FileText,
   Maximize2,
+  Minimize2,
   Play,
   Pause,
   SkipBack,
@@ -17,6 +18,7 @@ import cytoscape from 'cytoscape';
 import { api } from '../lib/api';
 import { InvestigationDetail, LineageNode, LineageEdge } from '../types/api';
 import { useTheme } from '../context/ThemeContext';
+import { RippleGrid } from '../components/RippleGrid';
 
 interface InvestigationWorkspaceProps {
   initialContext?: { alert_id?: string; root_account_id?: string };
@@ -30,9 +32,33 @@ export const InvestigationWorkspace: React.FC<InvestigationWorkspaceProps> = ({ 
   
   const [selectedEntity, setSelectedEntity] = useState<LineageNode | LineageEdge | null>(null);
   const [activeTabPanel, setActiveTabPanel] = useState<'timeline' | 'hops' | 'paths'>('timeline');
+  const [isFullScreen, setIsFullScreen] = useState<boolean>(false);
 
   const graphContainerRef = useRef<HTMLDivElement>(null);
+  const graphCardRef = useRef<HTMLDivElement>(null);
   const cyRef = useRef<cytoscape.Core | null>(null);
+
+  const toggleFullScreen = () => {
+    setIsFullScreen(prev => !prev);
+  };
+
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape' && isFullScreen) {
+        setIsFullScreen(false);
+      }
+    };
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [isFullScreen]);
+
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      cyRef.current?.resize();
+      cyRef.current?.fit();
+    }, 150);
+    return () => clearTimeout(timer);
+  }, [isFullScreen]);
 
   const initWorkspace = async () => {
     setLoading(true);
@@ -437,7 +463,14 @@ export const InvestigationWorkspace: React.FC<InvestigationWorkspaceProps> = ({ 
       {/* Main Workspace: Graph Canvas (8 Cols) + Inspector (4 Cols) */}
       <div className="grid grid-cols-1 lg:grid-cols-12 gap-8">
         {/* Graph Canvas Column */}
-        <div className="lg:col-span-8 bg-white dark:bg-[#151619] border border-neutral-200 dark:border-neutral-800 p-5 flex flex-col h-[620px] relative">
+        <div
+          ref={graphCardRef}
+          className={`${
+            isFullScreen
+              ? 'fixed inset-0 z-50 bg-[#FAFAFA] dark:bg-[#0C0D0E] p-6 flex flex-col w-screen h-screen m-0'
+              : 'lg:col-span-8 bg-white dark:bg-[#151619] border border-neutral-200 dark:border-neutral-800 p-5 flex flex-col h-[620px] relative'
+          }`}
+        >
           {/* Top Tape-Deck & Filter Bar */}
           <div className="flex flex-wrap items-center justify-between gap-3 pb-3 border-b-2 border-neutral-900 dark:border-neutral-100 z-10">
             {/* View Mode Segmented Controls */}
@@ -539,27 +572,73 @@ export const InvestigationWorkspace: React.FC<InvestigationWorkspaceProps> = ({ 
               </span>
             </div>
 
-            <button
-              onClick={() => cyRef.current?.fit()}
-              className="p-1.5 border border-neutral-300 dark:border-neutral-700 text-neutral-600 dark:text-neutral-400 hover:border-neutral-900 hover:text-neutral-900 dark:hover:text-white transition-colors text-xs flex items-center space-x-1 font-mono uppercase font-bold"
-              title="Fit to Canvas"
-            >
-              <Maximize2 className="w-3.5 h-3.5" />
-              <span>FIT</span>
-            </button>
+            <div className="flex items-center space-x-2">
+              <button
+                onClick={() => cyRef.current?.fit()}
+                className="p-1.5 border border-neutral-300 dark:border-neutral-700 text-neutral-600 dark:text-neutral-400 hover:border-neutral-900 hover:text-neutral-900 dark:hover:text-white transition-colors text-xs flex items-center space-x-1 font-mono uppercase font-bold"
+                title="Fit to Canvas"
+              >
+                <Maximize2 className="w-3.5 h-3.5" />
+                <span>FIT</span>
+              </button>
+
+              <button
+                onClick={toggleFullScreen}
+                className={`p-1.5 border text-xs flex items-center space-x-1.5 font-mono uppercase font-bold transition-colors ${
+                  isFullScreen
+                    ? 'bg-swiss-red text-white border-swiss-red hover:bg-swiss-redHover'
+                    : 'border-neutral-300 dark:border-neutral-700 text-neutral-600 dark:text-neutral-400 hover:border-neutral-900 hover:text-neutral-900 dark:hover:text-white'
+                }`}
+                title={isFullScreen ? 'Exit Full Screen (Esc)' : 'Expand Graph to Full Screen'}
+              >
+                {isFullScreen ? <Minimize2 className="w-3.5 h-3.5" /> : <Maximize2 className="w-3.5 h-3.5" />}
+                <span>{isFullScreen ? 'EXIT FULLSCREEN' : 'FULLSCREEN'}</span>
+              </button>
+            </div>
           </div>
 
-          {/* Graph DOM */}
-          <div ref={graphContainerRef} className="w-full flex-1 bg-[#FAFAFA] dark:bg-[#0C0D0E] border border-neutral-200 dark:border-neutral-800 mt-3 relative">
+          {/* Graph & RippleGrid Canvas */}
+          <div
+            style={{ width: '100%', height: isFullScreen ? 'calc(100vh - 140px)' : '540px', position: 'relative' }}
+            className="border border-neutral-200 dark:border-neutral-800 bg-[#FAFAFA] dark:bg-[#0C0D0E] mt-3 overflow-hidden flex-1 min-h-0"
+          >
+            {/* RippleGrid Component directly inside the box */}
+            <div className="absolute inset-0 z-0">
+              <RippleGrid
+                color={theme === 'dark' ? '#ffffff' : '#000000'}
+                cellSize={46}
+                rippleStrength={1.4}
+                rippleSpeed={1.1}
+                glow={0.7}
+                autoRipple="center"
+                rippleInterval={2.2}
+                lightMode={theme === 'light'}
+                fade={0.2}
+                opacity={theme === 'dark' ? 0.75 : 0.65}
+              />
+            </div>
+
+            {/* Cytoscape Lineage Graph DOM */}
+            <div
+              ref={graphContainerRef}
+              className="absolute inset-0 z-10 bg-transparent"
+            />
+
+            {/* Empty State Overlay when no active investigation */}
             {!investigation && !loading && (
-              <div className="absolute inset-0 flex flex-col items-center justify-center text-center p-6 text-xs font-mono text-neutral-400">
-                <span className="w-2 h-2 bg-swiss-red inline-block mb-2" />
-                <span className="font-bold uppercase tracking-wider text-neutral-900 dark:text-white text-xs">
-                  No Active Investigation Dossier
-                </span>
-                <p className="max-w-md text-neutral-500 dark:text-neutral-400 text-[11px] mt-1 font-sans">
-                  Run a scenario in the Simulator or select an alert to trigger explainable multi-hop lineage reconstruction.
-                </p>
+              <div className="absolute inset-0 flex flex-col items-center justify-center text-center p-6 pointer-events-none z-20">
+                <div className="bg-white/90 dark:bg-black/90 backdrop-blur-md border border-neutral-300 dark:border-neutral-700 p-5 shadow-2xl max-w-md">
+                  <div className="flex items-center justify-center space-x-2 text-swiss-red font-mono text-[10px] font-bold uppercase tracking-widest mb-1.5">
+                    <span className="w-2 h-2 bg-swiss-red inline-block" />
+                    <span>SURVEILLANCE RIPPLEGRID MATRIX</span>
+                  </div>
+                  <h3 className="text-sm font-black font-mono uppercase text-neutral-900 dark:text-white">
+                    Awaiting Lineage Trace Injection
+                  </h3>
+                  <p className="text-[11px] font-mono text-neutral-500 dark:text-neutral-400 mt-2 leading-relaxed">
+                    Interactive WebGL RippleGrid active. Move cursor or click to pulse the grid. Run a scenario in the Simulator or select an alert to project forensic transaction lineage.
+                  </p>
+                </div>
               </div>
             )}
           </div>
